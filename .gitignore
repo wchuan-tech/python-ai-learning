@@ -1,0 +1,6 @@
+.env
+key.txt
+__pycache__/
+.idea/
+.vscode/
+*.pdf
