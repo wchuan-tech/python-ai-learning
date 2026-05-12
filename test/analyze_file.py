@@ -1,6 +1,11 @@
+import os
 from openai import OpenAI
+from dotenv import load_dotenv
 
-client = OpenAI(api_key="sk-f93ff599836d4d30b307e170e6d7394c", base_url="https://api.deepseek.com")
+load_dotenv()
+
+api_key = os.getenv("DEEPSEEK_API_KEY")
+client = OpenAI(api_key = api_key, base_url="https://api.deepseek.com")
 
 file_path = "D:/Python/test/ai_assistant.py"
 with open(file_path,"r",encoding="utf-8") as f:
