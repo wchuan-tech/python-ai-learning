@@ -35,7 +35,10 @@ def build_vector_store(uploaded_file):
     if os.path.exists(persist_path):
         st.sidebar.info("Index Existing,Loading...")
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        vectorstore = Chroma(persist_directory = persist_path, embedding=embeddings)
+        vectorstore = Chroma(
+            persist_directory = persist_path, 
+            embedding_function=embeddings
+            )
         
         return vectorstore
 
