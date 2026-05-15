@@ -4,3 +4,5 @@ __pycache__/
 .idea/
 .vscode/
 *.pdf
+chroma_db/
+test_ds.py

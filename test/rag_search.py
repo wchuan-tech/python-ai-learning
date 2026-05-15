@@ -22,8 +22,8 @@ st.set_page_config(page_title="AI Agent Assistant", layout="wide")
 load_dotenv()
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-# --- 【修改点 2】预定义 LLM 对象 ---
-# 作为 Agent 的“大脑”，它需要在全局范围内可被访问
+# --- 预定义 LLM 对象 ---
+# Agent 的“大脑”
 llm = ChatOpenAI(
     model='deepseek-chat',
     openai_api_key=os.getenv("DEEPSEEK_API_KEY"),
@@ -31,30 +31,38 @@ llm = ChatOpenAI(
     streaming=True
 )
 
-DB_PARENT_DIR = "./chroma_db"
+DB_PARENT_DIR = "./chroma_db/global_store"
 
 @st.cache_resource
-def build_vector_store(uploaded_file):
-    """保持不变：Load -> Split -> Embed -> Store (持久化)"""
-    file_bytes = uploaded_file.read()
-    file_hash = hashlib.md5(file_bytes).hexdigest()
-    persist_path = os.path.join(DB_PARENT_DIR, file_hash)
-
-    if os.path.exists(persist_path):
-        st.sidebar.info("Found Cache, Loading...")
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        return Chroma(persist_directory=persist_path, embedding_function=embeddings)
-
-    uploaded_file.seek(0)
-    with open("temp.pdf", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-
-    loader = PyPDFLoader("temp.pdf")
-    docs = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    all_splits = text_splitter.split_documents(docs)
+def build_vector_store(uploaded_files):
+    """Load -> Split -> Embed -> Store"""
+    all_final_splits = []
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    return Chroma.from_documents(documents=all_splits, embedding=embeddings, persist_directory=persist_path)
+
+    for file in uploaded_files:
+        temp_path = f"temp_{file.name}"
+        with open(temp_path,"wb") as f:
+            f.write(file.getbuffer())
+
+        loader = PyPDFLoader(temp_path)
+        docs = loader.load()
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size = 600,chunk_overlap = 100)
+        splits = text_splitter.split_documents(docs)
+
+        for s in splits:
+            s.metadata["file_name"] = file.name
+
+        all_final_splits.extend(splits)
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    return Chroma.from_documents(
+        documents=all_final_splits,
+        embedding=embeddings,
+        persist_directory=DB_PARENT_DIR
+    )
 
 # --- UI 表现层 ---
 
@@ -63,27 +71,28 @@ st.title("🤖 智能 PDF 助手 (Agent 版)")
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    uploaded_file = st.file_uploader("Upload PDF file...", type="pdf")
-    if st.button("🗑️ Clean Chat"):
-        st.session_state.messages = []
-        st.rerun()
-
-# --- 动态创建 Agent 及其工具箱 ---
+# --- 创建 Agent 及其工具箱 ---
 # 专业逻辑：工具必须拿到 vectorstore 后才能被创建
 # 工具 A: 联网搜索
 search_tool = TavilySearchResults(k=3)
 tools = [search_tool]
-if uploaded_file:
+
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    uploaded_files = st.file_uploader("Upload PDF file...", type="pdf",accept_multiple_files=True)
+    if st.button("🗑️ Clean Chat"):
+        st.session_state.messages = []
+        st.rerun()
+
+if uploaded_files:
     # 1. 解析 PDF
     with st.spinner("Building VectorStore..."):
-        vectorstore = build_vector_store(uploaded_file)
+        vectorstore = build_vector_store(uploaded_files)
     st.sidebar.success("Ready!")
 
     # 工具 B: PDF 检索（将 RAG 变成一个工具）
     retriever_tool = create_retriever_tool(
-        vectorstore.as_retriever(),
+        vectorstore.as_retriever(search_kwargs={"k": 5}),
         "pdf_search",
         "用于搜索当前上传的 PDF 文档。当你需要查找文档里的具体细节时，请使用此工具。"
     )
@@ -104,11 +113,13 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# --- 【修改点 4】聊天处理逻辑 ---
+# --- 聊天处理逻辑 ---
 if question := st.chat_input("问问 PDF 或搜搜全网..."):
     with st.chat_message("user"):
         st.write(question)
-    st.session_state.messages.append({"role": "user", "content": question})
+    st.session_state.messages.append(
+        {"role": "user", "content": question}
+        )
 
     with st.chat_message("assistant"):
         with st.status("Agent 正在思考并选择工具...", expanded=True) as status:
