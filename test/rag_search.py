@@ -13,7 +13,17 @@ from langchain_openai import ChatOpenAI
 
 # Agent 专属导入
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain.tools.retriever import create_retriever_tool
+# --- 逻辑层：鲁棒性导入 ---
+try:
+    # 尝试路径 A (LangChain 0.3+ 最新标准)
+    from langchain.tools.retriever import create_retriever_tool
+except ImportError:
+    try:
+        # 尝试路径 B (常见备用路径)
+        from langchain.agents.agent_toolkits import create_retriever_tool
+    except ImportError:
+        # 尝试路径 C (最基础路径)
+        from langchain.agents import create_retriever_tool
 from langchain.agents import create_openai_tools_agent, AgentExecutor
 from langchain import hub
 
